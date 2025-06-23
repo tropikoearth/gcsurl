@@ -15,7 +15,7 @@ A lightweight Go library for generating signed URLs for Google Cloud Storage upl
 ## Installation
 
 ```bash
-go get github.com/jhonymendonca/gcsurl
+go get github.com/tropikoearth/gcsurl
 ```
 
 ## Quick Start
@@ -28,7 +28,7 @@ import (
     "fmt"
     "log"
 
-    "github.com/jhonymendonca/gcsurl"
+    "github.com/tropikoearth/gcsurl"
 )
 
 func main() {

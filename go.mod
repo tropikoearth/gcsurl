@@ -1,4 +1,4 @@
-module github.com/jhonymendonca/gcsurl
+module github.com/tropikoearth/gcsurl
 
 go 1.24.4
 
