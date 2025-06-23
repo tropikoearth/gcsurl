@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/jhonymendonca/gcsurl"
+	"github.com/tropikoearth/gcsurl"
 )
 
 func main() {
