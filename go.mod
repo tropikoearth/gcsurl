@@ -1,4 +1,4 @@
-module github.com/tropikoearth/gcsurl
+module github.com/tropikoearth/gcsurl/v2
 
 go 1.24.4
 
