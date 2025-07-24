@@ -5,7 +5,7 @@ A lightweight Go library for generating signed URLs for Google Cloud Storage upl
 ## Features
 
 - ✅ Generate signed upload URLs for GCS
-- ✅ Generate signed download URLs for GCS  
+- ✅ Generate signed download URLs for GCS
 - ✅ Support for custom expiry times
 - ✅ Multiple authentication methods (Service Account JSON, file, Workload Identity)
 - ✅ Environment variable configuration
@@ -66,20 +66,20 @@ The library uses the following environment variables:
 | Variable | Description | Required |
 |----------|-------------|----------|
 | `GCS_BUCKET_NAME` | Default GCS bucket name (when not specified in constructor) | ❌ No** |
-| `GCS_SERVICE_ACCOUNT_JSON` | Service account JSON as string | ❌ No* |
+| `GCS_SERVICE_ACCOUNT_JSON_ENCODED` | Service account JSON base64 encoded | ❌ No* |
 | `GOOGLE_APPLICATION_CREDENTIALS` | Path to service account JSON file | ❌ No* |
 | `GCP_PROJECT_ID` | GCP Project ID | ❌ No |
 | `GCS_DEFAULT_EXPIRY_MINUTES` | Default URL expiry time in minutes (default: 15) | ❌ No |
 
-*At least one authentication method is required  
+*At least one authentication method is required
 **Required only when using `NewURLGenerator()` or `NewURLGeneratorWithRestrictions()`. Other constructors accept bucket as parameter.
 
 ### Authentication Priority
 
 The library attempts authentication in this order:
 
-1. **Service Account JSON String** (`GCS_SERVICE_ACCOUNT_JSON`)
-2. **Service Account JSON File** (`GOOGLE_APPLICATION_CREDENTIALS`)  
+1. **Service Account JSON base64 encoded** (`GCS_SERVICE_ACCOUNT_JSON_ENCODED`)
+2. **Service Account JSON File** (`GOOGLE_APPLICATION_CREDENTIALS`)
 3. **Default Credentials** (Workload Identity, gcloud, etc.)
 
 ### Example Environment Setup
@@ -88,8 +88,8 @@ The library attempts authentication in this order:
 # Required
 export GCS_BUCKET_NAME="my-storage-bucket"
 
-# Option 1: JSON string (recommended for containers)
-export GCS_SERVICE_ACCOUNT_JSON='{"type":"service_account","project_id":"my-project",...}'
+# Option 1: JSON base64 encoded (recommended for containers)
+export GCS_SERVICE_ACCOUNT_JSON_ENCODED='{"type":"service_account","project_id":"my-project",...}'
 
 # Option 2: JSON file path (good for local development)
 export GOOGLE_APPLICATION_CREDENTIALS="/path/to/service-account.json"
@@ -130,7 +130,7 @@ downloadURL, err := generator.GenerateSignedDownloadURL(ctx, upload.GeneratedKey
 ```go
 // Different buckets for different purposes
 docsGenerator, err := gcsurl.NewURLGeneratorWithBucket("company-documents")
-mediaGenerator, err := gcsurl.NewURLGeneratorWithBucket("user-media") 
+mediaGenerator, err := gcsurl.NewURLGeneratorWithBucket("user-media")
 reportsGenerator, err := gcsurl.NewURLGeneratorWithBucket("generated-reports")
 
 // Each generator works with its specific bucket
@@ -223,16 +223,16 @@ generator, err := gcsurl.NewURLGeneratorWithConfig(config)
 
 // Custom bucket and expiry
 upload, err := generator.GenerateSignedUploadURLWithExpiry(
-    ctx, 
-    "different-bucket", 
-    "file.pdf", 
+    ctx,
+    "different-bucket",
+    "file.pdf",
     1*time.Hour, // 1 hour expiry
 )
 
 // Different bucket
 downloadURL, err := generator.GenerateSignedDownloadURLWithBucket(
     ctx,
-    "downloads-bucket", 
+    "downloads-bucket",
     "public/file.pdf",
 )
 ```
@@ -253,7 +253,7 @@ COPY --from=builder /app/main .
 
 # Set environment variables
 ENV GCS_BUCKET_NAME=my-bucket
-ENV GCS_SERVICE_ACCOUNT_JSON='{"type":"service_account",...}'
+ENV GCS_SERVICE_ACCOUNT_JSON_ENCODED='{"type":"service_account",...}'
 
 CMD ["./main"]
 ```
@@ -278,7 +278,8 @@ spec:
         env:
         - name: GCS_BUCKET_NAME
           value: "my-bucket"
-        # No need to set GCS_SERVICE_ACCOUNT_JSON - Workload Identity handles it
+        - name: GCS_SERVICE_ACCOUNT_JSON_ENCODED
+          value: "base64jsonencoded"
 ```
 
 ## API Reference
@@ -306,7 +307,7 @@ type UploadRestrictions struct {
 
 type Config struct {
     ProjectID             string
-    BucketName            string  
+    BucketName            string
     ServiceAccountKeyPath string
     DefaultExpiryMinutes  int
     UploadRestrictions    *UploadRestrictions
@@ -414,13 +415,13 @@ type Document struct {
 // Upload flow
 func HandleUpload(userID uuid.UUID, filename string) (*Document, error) {
     generator, _ := gcsurl.NewURLGeneratorWithBucket("documents")
-    
+
     // Generate upload URL with unique name
     upload, err := generator.GenerateSignedUploadURL(ctx, filename)
     if err != nil {
         return nil, err
     }
-    
+
     // Save to database with generated key
     doc := &Document{
         ID:           uuid.New(),
@@ -430,18 +431,18 @@ func HandleUpload(userID uuid.UUID, filename string) (*Document, error) {
         UserID:       userID,
         CreatedAt:    time.Now(),
     }
-    
+
     db.Save(doc)
-    
+
     return doc, nil
 }
 
 // Download flow
 func HandleDownload(docID uuid.UUID) (string, error) {
     doc, _ := db.GetDocument(docID)
-    
+
     generator, _ := gcsurl.NewURLGeneratorWithBucket(doc.BucketName)
-    
+
     // Use the stored GeneratedKey for download
     downloadURL, err := generator.GenerateSignedDownloadURL(ctx, doc.FileKey)
     return downloadURL, err
@@ -455,7 +456,7 @@ The library automatically generates unique names while preserving directory stru
 ```go
 // Input → Generated Key
 "document.pdf" → "a1b2c3d4_document.pdf"
-"photos/avatar.jpg" → "photos/e5f6g7h8_avatar.jpg"  
+"photos/avatar.jpg" → "photos/e5f6g7h8_avatar.jpg"
 "users/123/files/contract.pdf" → "users/123/files/i9j0k1l2_contract.pdf"
 "reports/2025/january.xlsx" → "reports/2025/m3n4o5p6_january.xlsx"
 ```
