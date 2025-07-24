@@ -53,7 +53,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Support for upload URL generation with configurable expiry
 - Support for download URL generation with configurable expiry
 - Multiple authentication methods:
-  - Service Account JSON string via `GCS_SERVICE_ACCOUNT_JSON`
+  - Service Account JSON base64 encoded via `GCS_SERVICE_ACCOUNT_JSON_ENCODED`
   - Service Account JSON file via `GOOGLE_APPLICATION_CREDENTIALS`
   - Default credentials (Workload Identity, gcloud, etc.)
 - Environment variable configuration:

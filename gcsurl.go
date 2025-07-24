@@ -5,6 +5,7 @@ package gcsurl
 import (
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -63,7 +64,7 @@ type Config struct {
 // It reads configuration from environment variables:
 // - GCS_BUCKET_NAME: The default GCS bucket name (optional - will error if not provided)
 // - GCP_PROJECT_ID: The GCP project ID (optional)
-// - GCS_SERVICE_ACCOUNT_JSON: Service account JSON as string (preferred)
+// - GCS_SERVICE_ACCOUNT_JSON_ENCODED: Service account JSON as base64 encoded (preferred)
 // - GOOGLE_APPLICATION_CREDENTIALS: Path to service account JSON file (fallback)
 // - GCS_DEFAULT_EXPIRY_MINUTES: Default expiry time in minutes (default: 15)
 func NewURLGenerator() (*URLGenerator, error) {
@@ -113,33 +114,17 @@ func NewURLGeneratorWithRestrictions(restrictions *UploadRestrictions) (*URLGene
 	if restrictions != nil {
 		uploadRestrictions = *restrictions
 	}
-	
+
 	var svcAccount *ServiceAccount
 	var svcAccountJSON []byte
 	var serviceAccountKeyPath string
 
-	// Try to load service account from environment variable first (JSON string)
-	if env := os.Getenv("GCS_SERVICE_ACCOUNT_JSON"); env != "" {
-		var sa ServiceAccount
-		if err := json.Unmarshal([]byte(env), &sa); err != nil {
-			return nil, fmt.Errorf("failed to parse GCS_SERVICE_ACCOUNT_JSON: %w", err)
-		}
-		svcAccount = &sa
-		svcAccountJSON = []byte(env)
-	} else if credPath := os.Getenv("GOOGLE_APPLICATION_CREDENTIALS"); credPath != "" {
-		// Fallback to file-based credentials
-		data, err := os.ReadFile(credPath)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read service account file %s: %w", credPath, err)
-		}
-		var sa ServiceAccount
-		if err := json.Unmarshal(data, &sa); err != nil {
-			return nil, fmt.Errorf("failed to parse service account file %s: %w", credPath, err)
-		}
-		svcAccount = &sa
-		svcAccountJSON = data
-		serviceAccountKeyPath = credPath
+	sa, saJSON, err := getServiceAccountFromEnv()
+	if err != nil {
+		return nil, err
 	}
+	svcAccount = sa
+	svcAccountJSON = saJSON
 
 	// For Workload Identity or default credentials, svcAccount can be nil
 	// The client will use default credentials automatically
@@ -184,16 +169,7 @@ func NewURLGeneratorWithConfig(config Config) (*URLGenerator, error) {
 
 	var svcAccount *ServiceAccount
 	var svcAccountJSON []byte
-
-	// Try to load service account from environment variable first
-	if env := os.Getenv("GCS_SERVICE_ACCOUNT_JSON"); env != "" {
-		var sa ServiceAccount
-		if err := json.Unmarshal([]byte(env), &sa); err != nil {
-			return nil, fmt.Errorf("failed to parse GCS_SERVICE_ACCOUNT_JSON: %w", err)
-		}
-		svcAccount = &sa
-		svcAccountJSON = []byte(env)
-	} else if config.ServiceAccountKeyPath != "" {
+	if config.ServiceAccountKeyPath != "" {
 		data, err := os.ReadFile(config.ServiceAccountKeyPath)
 		if err != nil {
 			return nil, fmt.Errorf("failed to read service account file %s: %w", config.ServiceAccountKeyPath, err)
@@ -204,6 +180,13 @@ func NewURLGeneratorWithConfig(config Config) (*URLGenerator, error) {
 		}
 		svcAccount = &sa
 		svcAccountJSON = data
+	} else {
+		sa, saJSON, err := getServiceAccountFromEnv()
+		if err != nil {
+			return nil, err
+		}
+		svcAccount = sa
+		svcAccountJSON = saJSON
 	}
 
 	return &URLGenerator{
@@ -217,12 +200,39 @@ func NewURLGeneratorWithConfig(config Config) (*URLGenerator, error) {
 	}, nil
 }
 
+func getServiceAccountFromEnv() (*ServiceAccount, []byte, error) {
+	// Try to load service account from environment variable first
+	if env := os.Getenv("GCS_SERVICE_ACCOUNT_JSON_ENCODED"); env != "" {
+		var sa ServiceAccount
+		decodedServiceAccountJSON, err := base64.StdEncoding.DecodeString(env)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to decode GCS_SERVICE_ACCOUNT_JSON_ENCODED: %w", err)
+		}
+		if err := json.Unmarshal(decodedServiceAccountJSON, &sa); err != nil {
+			return nil, nil, fmt.Errorf("failed to parse GCS_SERVICE_ACCOUNT_JSON_ENCODED: %w", err)
+		}
+		return &sa, decodedServiceAccountJSON, nil
+	} else if credPath := os.Getenv("GOOGLE_APPLICATION_CREDENTIALS"); credPath != "" {
+		// Fallback to file-based credentials
+		data, err := os.ReadFile(credPath)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to read service account file %s: %w", credPath, err)
+		}
+		var sa ServiceAccount
+		if err := json.Unmarshal(data, &sa); err != nil {
+			return nil, nil, fmt.Errorf("failed to parse service account file %s: %w", credPath, err)
+		}
+		return &sa, data, nil
+	}
+	return nil, nil, fmt.Errorf("no service account configured - set GCS_SERVICE_ACCOUNT_JSON_ENCODED or GOOGLE_APPLICATION_CREDENTIALS")
+}
+
 // getServiceAccount returns the loaded service account or an error
 func (u *URLGenerator) getServiceAccount() (ServiceAccount, error) {
 	if u.svcAccount != nil {
 		return *u.svcAccount, nil
 	}
-	return ServiceAccount{}, fmt.Errorf("service account not loaded - configure GCS_SERVICE_ACCOUNT_JSON or GOOGLE_APPLICATION_CREDENTIALS")
+	return ServiceAccount{}, fmt.Errorf("service account not loaded - configure GCS_SERVICE_ACCOUNT_JSON_ENCODED or GOOGLE_APPLICATION_CREDENTIALS")
 }
 
 // GenerateSignedUploadURL generates a signed URL for uploading a file to GCS with unique naming
@@ -458,7 +468,6 @@ func (u *URLGenerator) ValidateUpload(filename string) error {
 	return nil
 }
 
-
 // generateUploadURLWithRestrictions generates upload URL applying all restrictions
 func (u *URLGenerator) generateUploadURLWithRestrictions(ctx context.Context, bucketName, objectName string, expiry time.Duration) (DocumentUpload, error) {
 	sa, err := u.getServiceAccount()
@@ -537,8 +546,8 @@ func (u *URLGenerator) GetUploadRestrictions() UploadRestrictions {
 
 // hasRestrictions checks if any upload restrictions are configured
 func (u *URLGenerator) hasRestrictions() bool {
-	return len(u.uploadRestrictions.AllowedExtensions) > 0 || 
-		u.uploadRestrictions.MaxFileSizeMB > 0 || 
+	return len(u.uploadRestrictions.AllowedExtensions) > 0 ||
+		u.uploadRestrictions.MaxFileSizeMB > 0 ||
 		!u.uploadRestrictions.AllowMultiple
 }
 
